@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "taskrunnerx"
+version = "0.1.0"
+description = "Distributed task queue system with Redis Streams"
+authors = [{name = "TaskRunnerX Team"}]
+requires-python = ">=3.8"
+dependencies = [
+    "fastapi>=0.100.0",
+    "uvicorn>=0.20.0",
+    "redis>=4.5.0",
+    "sqlalchemy>=2.0.0",
+    "alembic>=1.10.0",
+    "pydantic>=2.0.0",
+    "typer>=0.9.0",
+    "apscheduler>=3.10.0",
+    "pymysql>=1.0.0",
+    "cryptography>=3.4.0",
+    "python-multipart>=0.0.6",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "black>=23.0.0",
+    "isort>=5.12.0",
+    "mypy>=1.0.0",
+]
+
+[project.scripts]
+taskrunnerx = "taskrunnerx.cli.main:app"

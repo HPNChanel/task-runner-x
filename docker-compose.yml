@@ -1,0 +1,62 @@
+version: "3.9"
+services:
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: hpnchanel
+      MYSQL_DATABASE: taskrunnerx
+      TZ: Asia/Ho_Chi_Minh
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    ports: ["3306:3306"]
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-psecret"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  redis:
+    image: redis:7.2
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "PING"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    env_file: .env
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports: ["8000:8000"]
+    command: ["uvicorn", "taskrunnerx.app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    env_file: .env
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile.scheduler
+    env_file: .env
+    depends_on:
+      redis:
+        condition: service_healthy
+
+volumes:
+  mysql_data:
