@@ -1,15 +1,22 @@
-.PHONY: fmt lint test up down migrate
+.PHONY: init run api worker scheduler fmt lint
+
+init:
+\tpython -m taskrunnerx.scripts.init_db
+
+run:
+\tuvicorn taskrunnerx.app.main:app --host 0.0.0.0 --port 8000 --reload
+
+api:
+\tpython -m taskrunnerx.app.main
+
+worker:
+\tpython -m taskrunnerx.worker.worker
+
+scheduler:
+\tpython -m taskrunnerx.scheduler.scheduler
+
 fmt:
-\tpoetry run ruff check --fix .
-\tpoetry run black .
+\tpython -m black taskrunnerx
+
 lint:
-\tpoetry run ruff check .
-\tpoetry run mypy taskrunnerx
-test:
-\tpoetry run pytest -q
-up:
-\tdocker compose up -d --build
-down:
-\tdocker compose down -v
-migrate:
-\tpoetry run alembic upgrade head
+\tpython -m ruff check taskrunnerx

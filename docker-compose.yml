@@ -5,58 +5,39 @@ services:
     environment:
       MYSQL_ROOT_PASSWORD: hpnchanel
       MYSQL_DATABASE: taskrunnerx
-      TZ: Asia/Ho_Chi_Minh
-    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
     ports: ["3306:3306"]
+    command: ["--default-authentication-plugin=mysql_native_password","--character-set-server=utf8mb4","--collation-server=utf8mb4_unicode_ci"]
     volumes:
       - mysql_data:/var/lib/mysql
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-psecret"]
-      interval: 5s
-      timeout: 5s
-      retries: 30
 
   redis:
-    image: redis:7.2
+    image: redis:7
     ports: ["6379:6379"]
-    healthcheck:
-      test: ["CMD", "redis-cli", "PING"]
-      interval: 5s
-      timeout: 3s
-      retries: 30
 
   api:
     build:
       context: .
       dockerfile: Dockerfile.api
     env_file: .env
-    depends_on:
-      mysql:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+    depends_on: [mysql, redis]
     ports: ["8000:8000"]
-    command: ["uvicorn", "taskrunnerx.app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+    command: ["python","-m","taskrunnerx.app.main"]
 
   worker:
     build:
       context: .
       dockerfile: Dockerfile.worker
     env_file: .env
-    depends_on:
-      mysql:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+    depends_on: [mysql, redis]
+    command: ["python","-m","taskrunnerx.worker.worker"]
 
   scheduler:
     build:
       context: .
       dockerfile: Dockerfile.scheduler
     env_file: .env
-    depends_on:
-      redis:
-        condition: service_healthy
+    depends_on: [redis, api]
+    command: ["python","-m","taskrunnerx.scheduler.scheduler"]
 
 volumes:
   mysql_data:

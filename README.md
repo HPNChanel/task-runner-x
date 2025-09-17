@@ -1,35 +1,41 @@
 # TaskRunnerX
 
-A distributed task queue system built with Redis Streams, FastAPI, and MySQL.
+Tiny, production-lean **task runner** built on **FastAPI + MySQL + Redis Streams + APScheduler**.
 
-## Features
+## Quick start (local)
 
-- Distributed job processing with Redis Streams
-- RESTful API for job management
-- Cron-based scheduling
-- Worker auto-scaling
-- Dead letter queue handling
-- Idempotency guarantees
-
-## Quick Start
+1) Create venv and install:
 
 ```bash
-# Copy environment file
-cp .env.example .env
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+Setup MySQL & Redis (Docker recommended):
 
-# Start services
-make dev-up
+docker compose up -d mysql redis
+Initialize DB:
 
-# Submit a job
-taskrunnerx job submit echo --message "Hello World"
+python -m taskrunnerx.scripts.init_db
+Run API:
 
-# Check job status
-taskrunnerx job list
-```
+python -m taskrunnerx.app.main
+Run Worker:
 
-## Architecture
+python -m taskrunnerx.worker.worker
+Run Scheduler (optional):
 
-- **API**: FastAPI web server for job submission
-- **Scheduler**: APScheduler for cron-based jobs
-- **Workers**: Process jobs from Redis Streams
-- **Storage**: MySQL for persistence
+python -m taskrunnerx.scheduler.scheduler
+API
+POST /api/tasks → body: { "name": "echo", "payload": { "message": "hi" } }
+
+GET /api/tasks/{id}
+
+GET /api/tasks?limit=50&offset=0
+
+GET /api/health
+
+Notes
+MySQL DSN via .env (MYSQL_*); driver: PyMySQL.
+
+Redis Streams (trx.tasks) with consumer group (trx.workers).
+
+Worker supports demo tasks: heartbeat, echo, sha256. Extend in worker.py.
