@@ -10,12 +10,12 @@ settings = get_settings()
 app = FastAPI(title=settings.app_name)
 
 
-@app.lifespan("startup")
+@app.on_event("startup")
 async def on_startup():
     await queue.connect()
 
 
-@app.lifespan("shutdown")
+@app.on_event("shutdown")
 async def on_shutdown():
     await queue.close()
 

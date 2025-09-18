@@ -21,7 +21,7 @@ def set_task_started(db: Session, task_id: int):
     if not task:
         return None
     task.status = "running"
-    task.started_at = datetime.now(datetime.timezone.utc)  #* Newest format
+    task.started_at = datetime.utcnow()  #* Newest format
     task.attempts += 1
     db.add(task)
     return task
@@ -33,7 +33,7 @@ def set_task_finished(db: Session, task_id: int, error: str | None = None):
         return None
     
     task.status = "failed" if error else "done"
-    task.finished_at = datetime.now(datetime.timezone.utc)
+    task.finished_at = datetime.utcnow()
     if error:
         task.last_error = error
     db.add(task)

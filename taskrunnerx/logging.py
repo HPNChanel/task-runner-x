@@ -4,7 +4,7 @@ import logging
 import sys
 from typing import Any, Dict
 
-from .app.config import settings
+from .app.config import get_settings as settings
 
 
 def setup_logging() -> None:

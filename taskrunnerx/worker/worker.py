@@ -1,103 +1,92 @@
-"""Worker for processing jobs."""
 
-import time
+import asyncio
+import json
 from datetime import datetime
-from typing import Any, Dict
+from redis import asyncio as aioredis
 
-from ..app.config import settings
-from ..app.db import SessionLocal
-from ..adapters.redis_streams import RedisStreams
-from ..storage.repo_jobs import JobRepository
-from ..services.executor import TaskExecutor
-from ..logging import get_logger, setup_logging
-from ..metrics import metrics
+from .config import get_worker_settings
+from .logging import setup_logging
+from .metrics import Timer
 
-logger = get_logger(__name__)
+from ..app.config import get_settings
+from ..app.deps import db_session
+from ..app.services.tasks import set_task_started, set_task_finished
 
 
-class Worker:
-    """Job processing worker."""
-    
-    def __init__(self, worker_id: str = None):
-        self.worker_id = worker_id or settings.CONSUMER_NAME
-        self.redis_streams = RedisStreams()
-        self.executor = TaskExecutor()
-        
-    def run(self):
-        """Start worker loop."""
-        setup_logging()
-        logger.info(f"Worker {self.worker_id} starting...")
-        
-        # Create consumer group
-        self.redis_streams.create_consumer_group(self.worker_id)
-        
-        while True:
-            try:
-                # Get database session
-                db = SessionLocal()
-                job_repo = JobRepository(db)
-                
-                # Read jobs from stream
-                jobs = self.redis_streams.read_jobs(self.worker_id)
-                
-                for message_id, job_data in jobs:
-                    self._process_job(job_repo, message_id, job_data)
-                    
-                # Claim abandoned jobs
-                abandoned = self.redis_streams.claim_jobs(self.worker_id)
-                for message_id, job_data in abandoned:
-                    self._process_job(job_repo, message_id, job_data, claimed=True)
-                    
-                db.close()
-                
-            except Exception as e:
-                logger.error(f"Worker error: {e}")
-                time.sleep(5)
-                
-    def _process_job(
-        self,
-        job_repo: JobRepository,
-        message_id: str,
-        job_data: Dict[str, Any],
-        claimed: bool = False
-    ):
-        """Process individual job."""
-        job_id = job_data["id"]
-        
+WCFG = get_worker_settings()
+SETTINGS = get_settings()
+log = setup_logging(SETTINGS.log_level)
+
+
+async def ensure_group(r: aioredis.Redis):
+    streams = await r.xinfo_groups(WCFG.stream)
+    if not any(g.get("name") == WCFG.group for g in streams):
         try:
-            # Update job status to running
-            job_repo.update_status(job_id, "running")
-            
-            start_time = time.time()
-            
-            # Execute task
-            result = self.executor.execute(
-                job_data["task_name"],
-                job_data.get("args", {}),
-                job_data.get("kwargs", {}),
-                timeout=job_data.get("timeout", 300)
-            )
-            
-            duration = time.time() - start_time
-            
-            if result.success:
-                job_repo.update_status(job_id, "completed", result=result.result)
-                metrics.increment("jobs.completed")
-                logger.info(f"Job completed: {job_id}")
-            else:
-                job_repo.update_status(job_id, "failed", error=result.error)
-                metrics.increment("jobs.failed")
-                logger.error(f"Job failed: {job_id}")
-                
-            # Acknowledge message
-            self.redis_streams.ack_job(message_id)
-            metrics.timer("job.duration", duration)
-            
+            await r.xgroup_create(WCFG.stream, WCFG.group, id="$", mkstream=True)
+            log.info(f"Created consumer group {WCFG.group}")
         except Exception as e:
-            logger.error(f"Error processing job {job_id}: {e}")
-            job_repo.update_status(job_id, "failed", error=str(e))
+            if "BUSYGROUP" in str(e):
+                pass
+            else:
+                raise
 
+
+async def handle_message(r: aioredis.Redis, msg_id: str, data: dict):
+    try:
+        task_id = int(data.get("task_id"))
+        name = data.get("name")
+        payload = json.loads(data.get("payload") or "{}")
+    
+        with db_session() as db:
+            set_task_started(db, task_id)
+        
+        with Timer() as t:
+            #* Task handlers
+            if name == "heartbeat":
+                await asyncio.sleep(0.1)
+            elif name == "echo":
+                await asyncio.sleep(0.05)
+                log.info(f"ECHO: {payload}")
+            elif name == "sha256":
+                import hashlib
+                s = (payload.get("text") or "").encode("utf-8")
+                hashlib.sha256(s).hexdigest()
+            else:
+                raise ValueError(f"Unknown task name: {name}")
+    
+        with db_session() as db:
+            set_task_finished(db, task_id, error=None)
+        log.info(f"Processed {msg_id} task_id={task_id} name={name} in {t.elapsed:.3f}s")
+        await r.xack(WCFG.stream, WCFG.group, msg_id)
+    except Exception as e:
+        with db_session() as db:
+            set_task_finished(db, task_id if "task_id" in locals() else 0, error=str(e))
+        log.error(f"Error processing {msg_id}: {e}", exc_info=True)
+        await r.xack(WCFG.stream, WCFG.group, msg_id)
+
+
+async def worker_loop():
+    r = aioredis.from_url(WCFG.redis_url, decode_responses=True)
+    await ensure_group(r)
+    while True:
+        try:
+            resp = await r.xreadgroup(
+                groupname=WCFG.group,
+                consumername=WCFG.consumer,
+                streams={WCFG.stream: '>'},
+                count=10,
+                block=WCFG.block_ms
+            )
+            if not resp:
+                continue
+                
+            for _, entries in resp:
+                for msg_id, fields in entries:
+                    await handle_message(r, msg_id, fields)
+        except Exception as e:
+            log.error(f"Loop error: {e}", exc_info=True)
+            await asyncio.sleep(1)
 
 if __name__ == "__main__":
-    worker = Worker()
-    worker.run()
+    asyncio.run(worker_loop())
+        
