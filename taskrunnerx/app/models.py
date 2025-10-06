@@ -1,7 +1,9 @@
 
-from sqlalchemy import Column, Integer, String, DateTime, Text, JSON
+from sqlalchemy import JSON, Column, DateTime, Integer, String, Text
 from sqlalchemy.sql import func
+
 from .db import Base
+
 
 class Task(Base):
     __tablename__ = "tasks"

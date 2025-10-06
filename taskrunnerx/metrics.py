@@ -1,8 +1,7 @@
 """Metrics collection."""
 
-from typing import Dict, Any
 from collections import defaultdict
-import time
+from typing import Any, Dict
 
 
 class Metrics:

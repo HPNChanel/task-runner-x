@@ -1,7 +1,9 @@
 
-from sqlalchemy.orm import Session
-from sqlalchemy import select
 from datetime import datetime
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
 from ..models import Task
 from ..schemas import TaskCreate
 

@@ -1,17 +1,15 @@
 
 import asyncio
 import json
-from datetime import datetime
-from redis import asyncio as aioredis
 
-from .config import get_worker_settings
-from .logging import setup_logging
-from .metrics import Timer
+from redis import asyncio as aioredis
 
 from ..app.config import get_settings
 from ..app.deps import db_session
-from ..app.services.tasks import set_task_started, set_task_finished
-
+from ..app.services.tasks import set_task_finished, set_task_started
+from .config import get_worker_settings
+from .logging import setup_logging
+from .metrics import Timer
 
 WCFG = get_worker_settings()
 SETTINGS = get_settings()

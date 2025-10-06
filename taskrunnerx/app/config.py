@@ -1,7 +1,9 @@
 
-from functools import lru_cache
-from pydantic import BaseModel, Field
 import os
+from functools import lru_cache
+
+from pydantic import BaseModel, Field
+
 
 class Settings(BaseModel):
     app_name: str = "TaskRunnerX"
