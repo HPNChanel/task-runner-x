@@ -1,10 +1,10 @@
 
 import uvicorn
 from fastapi import FastAPI
+
 from .api.routes import router as api_router
 from .config import get_settings
 from .services.queue import queue
-
 
 settings = get_settings()
 app = FastAPI(title=settings.app_name)

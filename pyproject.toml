@@ -1,8 +1,28 @@
-[project]
+[tool.poetry]
 name = "taskrunnerx"
 version = "0.1.0"
 description = "Redis Streams + FastAPI + MySQL task runner"
-requires-python = ">=3.10"
+authors = ["TaskrunnerX Maintainers <devnull@example.com>"]
+license = "MIT"
+readme = "README.md"
+packages = [{ include = "taskrunnerx" }]
+
+[tool.poetry.dependencies]
+python = ">=3.10"
+fastapi = "0.116.2"
+uvicorn = "0.30.6"
+pydantic = "2.11.10"
+pydantic-settings = "2.11.0"
+SQLAlchemy = "2.0.43"
+pymysql = "1.1.2"
+redis = "5.3.1"
+apscheduler = "3.11.0"
+python-dotenv = "1.1.1"
+requests = "2.32.5"
+
+[tool.poetry.group.dev.dependencies]
+black = "24.10.0"
+ruff = "0.7.2"
 
 [tool.black]
 line-length = 100
@@ -10,5 +30,11 @@ target-version = ["py311"]
 
 [tool.ruff]
 line-length = 100
-select = ["E","F","I","B"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B"]
 ignore = ["E501"]
+
+[build-system]
+requires = ["poetry-core>=1.9.0"]
+build-backend = "poetry.core.masonry.api"

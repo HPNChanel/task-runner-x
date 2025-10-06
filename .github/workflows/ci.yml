@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  build-test-sbom:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Poetry
+        run: pip install poetry
+
+      - name: Install dependencies
+        run: poetry install --no-root
+
+      - name: Static analysis
+        run: |
+          poetry run ruff check taskrunnerx
+          poetry run python -m compileall taskrunnerx
+
+      - name: Verify dependency graph
+        run: poetry run pip check
+
+      - name: Download Syft
+        uses: anchore/sbom-action/download-syft@v0.15.10
+
+      - name: Generate SBOM
+        run: syft dir:. -o spdx-json=sbom.spdx.json
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom.spdx.json
+          if-no-files-found: error

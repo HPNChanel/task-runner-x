@@ -1,12 +1,12 @@
 
 import asyncio
 import signal
+
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
 from taskrunnerx.app.config import get_settings
 from taskrunnerx.app.services.queue import queue
-
 
 settings = get_settings()
 
