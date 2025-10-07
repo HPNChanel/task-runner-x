@@ -1,18 +1,23 @@
-version: "3.9"
+version: '3.9'
 services:
   mysql:
     image: mysql:8.0
     environment:
       MYSQL_ROOT_PASSWORD: hpnchanel
       MYSQL_DATABASE: taskrunnerx
-    ports: ["3306:3306"]
-    command: ["--default-authentication-plugin=mysql_native_password","--character-set-server=utf8mb4","--collation-server=utf8mb4_unicode_ci"]
+    ports: ['3306:3306']
+    command:
+      [
+        '--default-authentication-plugin=mysql_native_password',
+        '--character-set-server=utf8mb4',
+        '--collation-server=utf8mb4_unicode_ci',
+      ]
     volumes:
       - mysql_data:/var/lib/mysql
 
   redis:
     image: redis:7
-    ports: ["6379:6379"]
+    ports: ['6379:6379']
 
   api:
     build:
@@ -20,8 +25,8 @@ services:
       dockerfile: Dockerfile.api
     env_file: .env
     depends_on: [mysql, redis]
-    ports: ["8000:8000"]
-    command: ["python","-m","taskrunnerx.app.main"]
+    ports: ['8000:8000']
+    command: ['python', '-m', 'taskrunnerx.app.main']
 
   worker:
     build:
@@ -29,7 +34,7 @@ services:
       dockerfile: Dockerfile.worker
     env_file: .env
     depends_on: [mysql, redis]
-    command: ["python","-m","taskrunnerx.worker.worker"]
+    command: ['python', '-m', 'taskrunnerx.worker.worker']
 
   scheduler:
     build:
@@ -37,7 +42,7 @@ services:
       dockerfile: Dockerfile.scheduler
     env_file: .env
     depends_on: [redis, api]
-    command: ["python","-m","taskrunnerx.scheduler.scheduler"]
+    command: ['python', '-m', 'taskrunnerx.scheduler.scheduler']
 
 volumes:
   mysql_data:

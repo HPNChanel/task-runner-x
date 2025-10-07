@@ -1,31 +1,28 @@
-
 import asyncio
 import signal
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
-from taskrunnerx.app.config import get_settings
 from taskrunnerx.app.services.queue import queue
 
-settings = get_settings()
 
-
-async def enqueue_heartbeat():
+async def enqueue_heartbeat() -> None:
     await queue.enqueue(task_id=0, name="heartbeat", payload={"source": "scheduler"})
 
 
-async def main():
+async def main() -> None:
     await queue.connect()
-    sched = AsyncIOScheduler(timezone="UTC")
-    sched.add_job(enqueue_heartbeat, trigger=IntervalTrigger(minutes=1))
-    sched.start()
-    
+    scheduler = AsyncIOScheduler(timezone="UTC")
+    scheduler.add_job(enqueue_heartbeat, trigger=IntervalTrigger(minutes=1))
+    scheduler.start()
+
     stop = asyncio.Event()
+    loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
-        asyncio.get_event_loop().add_signal_handler(sig, stop.set)
+        loop.add_signal_handler(sig, stop.set)
     await stop.wait()
-    sched.shutdown(wait=False)
+    scheduler.shutdown(wait=False)
     await queue.close()
 
 
