@@ -1,6 +1,5 @@
-
-import uvicorn
 from fastapi import FastAPI
+import uvicorn
 
 from .api.routes import router as api_router
 from .config import get_settings
@@ -11,12 +10,12 @@ app = FastAPI(title=settings.app_name)
 
 
 @app.on_event("startup")
-async def on_startup():
+async def on_startup() -> None:
     await queue.connect()
 
 
 @app.on_event("shutdown")
-async def on_shutdown():
+async def on_shutdown() -> None:
     await queue.close()
 
 

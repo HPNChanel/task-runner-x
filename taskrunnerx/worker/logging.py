@@ -1,9 +1,9 @@
-
 import logging
+from logging import Logger
 import sys
 
 
-def setup_logging(level: str = "INFO"):
+def setup_logging(level: str = "INFO") -> Logger:
     logger = logging.getLogger("worker")
     logger.setLevel(level)
     handler = logging.StreamHandler(sys.stdout)
