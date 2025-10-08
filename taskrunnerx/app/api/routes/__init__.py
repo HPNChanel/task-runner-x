@@ -1,6 +1,9 @@
+from typing import Any
+
 from fastapi import APIRouter, HTTPException
 
 from ...deps import db_session
+from ...metrics import metrics
 from ...schemas import EnqueueResult, TaskCreate, TaskRead
 from ...services.queue import queue
 from ...services.tasks import create_task, get_task, list_tasks
@@ -20,8 +23,8 @@ async def submit_task(payload: TaskCreate) -> EnqueueResult:
     """Persist a task and enqueue it for workers."""
 
     with db_session() as db:
-        task = create_task(db, payload)
-    stream_id = await queue.enqueue(task.id, task.name, task.payload)
+        task, _ = create_task(db, payload)
+    stream_id = await queue.dispatch_task(task.id)
     return EnqueueResult(task_id=task.id, stream_id=stream_id)
 
 
@@ -43,3 +46,10 @@ def read_tasks(limit: int = 50, offset: int = 0) -> list[TaskRead]:
     with db_session() as db:
         tasks = list_tasks(db, limit=limit, offset=offset)
     return [TaskRead.model_validate(task) for task in tasks]
+
+
+@router.get("/metrics")
+def read_metrics() -> dict[str, Any]:
+    """Expose in-memory task execution metrics."""
+
+    return metrics.get_stats()

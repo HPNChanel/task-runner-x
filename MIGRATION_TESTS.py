@@ -63,7 +63,9 @@ def test_upgrade_and_downgrade_clean_database(temp_db: str) -> None:
 
     engine = _get_engine(temp_db)
     inspector = sa.inspect(engine)
-    assert "tasks" in inspector.get_table_names()
+    tables = set(inspector.get_table_names())
+    assert "tasks" in tables
+    assert {"task_outbox", "task_inbox", "task_dead_letter"} <= tables
     columns = _get_columns(engine, "tasks")
     expected_columns = {
         "id",
@@ -76,6 +78,10 @@ def test_upgrade_and_downgrade_clean_database(temp_db: str) -> None:
         "updated_at",
         "started_at",
         "finished_at",
+        "payload_hash",
+        "scheduled_at",
+        "scheduled_window_start",
+        "execution_key",
     }
     assert expected_columns <= columns
     indexes = _get_indexes(engine, "tasks")
@@ -110,12 +116,18 @@ def test_upgrade_and_downgrade_legacy_snapshot(temp_db: str) -> None:
 
     engine = _get_engine(temp_db)
     columns = _get_columns(engine, "tasks")
-    assert {"attempts", "last_error"} <= columns
+    assert {"attempts", "last_error", "payload_hash", "execution_key"} <= columns
     with engine.begin() as conn:
-        result = conn.execute(sa.text("SELECT attempts, last_error FROM tasks"))
-        attempts, last_error = result.first()
+        result = conn.execute(
+            sa.text(
+                "SELECT attempts, last_error, payload_hash, execution_key FROM tasks"
+            )
+        )
+        attempts, last_error, payload_hash, execution_key = result.first()
     assert attempts == 0
     assert last_error is None
+    assert payload_hash
+    assert execution_key.startswith("legacy:")
     indexes = _get_indexes(engine, "tasks")
     assert {"ix_tasks_name", "ix_tasks_status"} <= indexes
 
@@ -123,10 +135,13 @@ def test_upgrade_and_downgrade_legacy_snapshot(temp_db: str) -> None:
 
     engine = _get_engine(temp_db)
     inspector = sa.inspect(engine)
-    assert "tasks" in inspector.get_table_names()
+    tables = set(inspector.get_table_names())
+    assert "tasks" in tables
+    assert "task_outbox" not in tables
     columns = _get_columns(engine, "tasks")
     assert "attempts" not in columns
     assert "last_error" not in columns
+    assert "execution_key" not in columns
     with engine.begin() as conn:
         result = conn.execute(sa.text("SELECT name, status FROM tasks"))
         row = result.first()

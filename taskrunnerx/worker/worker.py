@@ -1,15 +1,30 @@
+"""Asynchronous worker that consumes Redis stream tasks."""
+
+from __future__ import annotations
+
 import asyncio
 from collections.abc import Awaitable, Callable, Mapping
+from datetime import timedelta
 import json
 from typing import Any, cast
+from uuid import uuid4
 
 from redis import asyncio as aioredis
+from sqlalchemy import func, select
 
 from ..app.config import get_settings
 from ..app.deps import db_session
-from ..app.services.tasks import set_task_finished, set_task_started
+from ..metrics import metrics
+from ..app.services.queue import queue
+from ..app.services.tasks import (
+    mark_task_retry,
+    move_to_dead_letter,
+    set_task_finished,
+    set_task_started,
+)
+from ..app.models import Task, TaskDeadLetter
 from .config import get_worker_settings
-from .logging import setup_logging
+from .logging import reset_trace_context, set_trace_context, setup_logging
 from .metrics import Timer
 
 WCFG = get_worker_settings()
@@ -24,7 +39,7 @@ async def ensure_group(r: aioredis.Redis) -> None:
 
     try:
         await r.xgroup_create(WCFG.stream, WCFG.group, id="$", mkstream=True)
-    except Exception as exc:
+    except Exception as exc:  # pragma: no cover - defensive
         if "BUSYGROUP" not in str(exc):
             raise
     else:
@@ -57,6 +72,12 @@ HANDLERS: dict[str, TaskHandler] = {
 }
 
 
+def _retry_delay_seconds(attempts: int) -> float:
+    base = SETTINGS.retry_backoff_ms / 1000
+    multiplier = SETTINGS.retry_backoff_multiplier ** max(attempts - 1, 0)
+    return base * multiplier
+
+
 async def _dispatch_task(name: str, payload: dict[str, Any]) -> None:
     handler = HANDLERS.get(name)
     if handler is None:
@@ -67,23 +88,41 @@ async def _dispatch_task(name: str, payload: dict[str, Any]) -> None:
 
 async def handle_message(r: aioredis.Redis, msg_id: str, data: Mapping[str, Any]) -> None:
     task_id: int | None = None
+    execution_key = str(data.get("execution_key", ""))
+    trace_token: tuple[Any, Any] | None = None
+    typed_payload: dict[str, Any] = {}
     try:
+        trace_id = uuid4().hex
+        span_id = uuid4().hex[:16]
+        trace_token = set_trace_context(trace_id, span_id)
+
         task_id = int(data.get("task_id", 0))
         name = data.get("name", "")
         payload_raw = data.get("payload") or "{}"
         payload = json.loads(payload_raw)
         if not isinstance(payload, dict):
             payload = {}
-        typed_payload: dict[str, Any] = {str(key): value for key, value in payload.items()}
+        typed_payload = {str(key): value for key, value in payload.items()}
 
         with db_session() as db:
-            set_task_started(db, task_id)
+            task = set_task_started(db, task_id, execution_key)
+            if task is None:
+                metrics.increment("tasks_skipped")
+                log.info(
+                    "Skipping duplicate task execution task_id=%s key=%s",
+                    task_id,
+                    execution_key,
+                )
+                return
 
         with Timer() as timer:
             await _dispatch_task(name, typed_payload)
 
         with db_session() as db:
-            set_task_finished(db, task_id, error=None)
+            set_task_finished(db, task_id, execution_key, error=None)
+
+        metrics.timer("task_duration", timer.elapsed)
+        metrics.increment("tasks_success")
         log.info(
             "Processed %s task_id=%s name=%s in %.3fs",
             msg_id,
@@ -91,12 +130,53 @@ async def handle_message(r: aioredis.Redis, msg_id: str, data: Mapping[str, Any]
             name,
             timer.elapsed,
         )
-        await r.xack(WCFG.stream, WCFG.group, msg_id)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - intentional broad catch for task safety
+        metrics.increment("tasks_failure")
         failing_task = task_id if task_id is not None else 0
-        with db_session() as db:
-            set_task_finished(db, failing_task, error=str(exc))
         log.error("Error processing %s: %s", msg_id, exc, exc_info=True)
+        if failing_task and execution_key:
+            delay_seconds = 0.0
+            attempts = 0
+            with db_session() as db:
+                set_task_finished(db, failing_task, execution_key, error=str(exc))
+                task_obj = db.get(Task, failing_task)
+                current_attempts = task_obj.attempts if task_obj else 0
+                delay_seconds = _retry_delay_seconds(current_attempts)
+                should_retry, attempts = mark_task_retry(
+                    db,
+                    failing_task,
+                    execution_key,
+                    delay=timedelta(seconds=delay_seconds),
+                    error=str(exc),
+                    max_attempts=SETTINGS.max_task_attempts,
+                )
+            if should_retry:
+                asyncio.create_task(queue.requeue_with_delay(failing_task, delay_seconds))
+                log.info(
+                    "Scheduled retry task_id=%s after %.2fs attempts=%s",
+                    failing_task,
+                    delay_seconds,
+                    attempts,
+                )
+            else:
+                with db_session() as db:
+                    record = move_to_dead_letter(
+                        db,
+                        failing_task,
+                        execution_key,
+                        name=data.get("name", ""),
+                        payload=typed_payload,
+                        error=str(exc),
+                    )
+                    total = db.scalar(select(func.count()).select_from(TaskDeadLetter)) or 0
+                await queue.publish_dead_letter(record)
+                metrics.set_gauge("dlq_size", float(total))
+        else:
+            with db_session() as db:
+                set_task_finished(db, failing_task, execution_key, error=str(exc))
+    finally:
+        if trace_token:
+            reset_trace_context(trace_token)
         await r.xack(WCFG.stream, WCFG.group, msg_id)
 
 
@@ -122,10 +202,10 @@ async def worker_loop() -> None:
             for _, entries in resp:
                 for entry_id, fields in entries:
                     await handle_message(redis_client, entry_id, fields)
-        except Exception as exc:
+        except Exception as exc:  # pragma: no cover - defensive loop guard
             log.error("Loop error: %s", exc, exc_info=True)
             await asyncio.sleep(1)
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover - manual execution
     asyncio.run(worker_loop())

@@ -13,6 +13,7 @@ class Metrics:
 
     counters: defaultdict[str, int] = field(default_factory=lambda: defaultdict(int))
     timers: defaultdict[str, list[float]] = field(default_factory=lambda: defaultdict(list))
+    gauges: dict[str, float] = field(default_factory=dict)
 
     def increment(self, metric: str, value: int = 1) -> None:
         """Increment counter metric."""
@@ -22,8 +23,16 @@ class Metrics:
         """Record timer metric."""
         self.timers[metric].append(duration)
 
+    def set_gauge(self, metric: str, value: float) -> None:
+        """Set gauge metric."""
+        self.gauges[metric] = value
+
     def get_stats(self) -> dict[str, Any]:
         """Get all metrics."""
+        success = self.counters.get("tasks_success", 0)
+        failure = self.counters.get("tasks_failure", 0)
+        total = success + failure
+        success_rate = (success / total) if total else 0.0
         return {
             "counters": dict(self.counters),
             "timers": {
@@ -33,6 +42,10 @@ class Metrics:
                     "total": sum(values),
                 }
                 for key, values in self.timers.items()
+            },
+            "gauges": dict(self.gauges),
+            "derived": {
+                "success_rate": success_rate,
             },
         }
 
