@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 class TaskCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=128)
     payload: dict[str, Any] | None = None
+    scheduled_at: datetime | None = None
 
 
 class TaskRead(BaseModel):
@@ -14,12 +15,16 @@ class TaskRead(BaseModel):
     name: str
     status: str
     payload: dict[str, Any] | None = None
+    payload_hash: str
     attempts: int
     last_error: str | None = None
     created_at: datetime
     updated_at: datetime | None = None
     started_at: datetime | None = None
     finished_at: datetime | None = None
+    scheduled_at: datetime
+    scheduled_window_start: datetime
+    execution_key: str
 
     class Config:
         from_attributes = True
